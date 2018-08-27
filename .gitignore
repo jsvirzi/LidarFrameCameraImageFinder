@@ -1,0 +1,9 @@
+.cproject
+.mxproject
+.project
+.settings/
+Debug/
+STM32F407VGTx_FLASH.ld
+STM32F4DISCOVERY.xml
+mcu Run.cfg
+
