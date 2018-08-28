@@ -37,6 +37,11 @@
 
 /* USER CODE BEGIN 0 */
 
+#define BlueLed 15
+#define RedLed 14
+#define OrangeLed 13
+#define GreenLed 12
+
 #include "timegm.h"
 
 enum GprmcFields {
@@ -56,6 +61,7 @@ enum GprmcFields {
 };
 
 extern uint32_t utcSeconds;
+static uint32_t utcSecondsStaged = 0;
 
 uint32_t UTCTimeFromGPRMCDateTimeStrings(const char *date_string, const char *time_string);
 uint32_t UTCTimeFromGPRMCDateTimeStrings(const char *date_string, const char *time_string) {
@@ -142,6 +148,7 @@ uint8_t ledChannelPhase = 0;
 /* External variables --------------------------------------------------------*/
 extern HCD_HandleTypeDef hhcd_USB_OTG_FS;
 extern TIM_HandleTypeDef htim2;
+extern TIM_HandleTypeDef htim3;
 extern TIM_HandleTypeDef htim4;
 extern TIM_HandleTypeDef htim5;
 extern UART_HandleTypeDef huart6;
@@ -183,9 +190,8 @@ void TIM2_IRQHandler(void)
 	static uint32_t previousCount;
 	uint32_t status = htim2.Instance->SR;
 	if (status & TIM_SR_CC1IF) {
-		ledChannelPhase = 0;
 		ledPhase ^= 1;
-		GPIOD->BSRR = (1 << (15 + ledPhase * 16));
+		GPIOD->BSRR = (1 << (BlueLed + ledPhase * 16));
 
 		volatile uint32_t count = htim2.Instance->CCR1;
 		if (previousCount != 0) {
@@ -195,6 +201,11 @@ void TIM2_IRQHandler(void)
 			}
 		}
 		previousCount = count;
+
+		if ((utcSecondsStaged != 0) && (utcSeconds == 0)) {
+			utcSeconds = utcSecondsStaged;
+			utcSecondsStaged = 0;
+		}
 	}
 
   /* USER CODE END TIM2_IRQn 0 */
@@ -205,27 +216,47 @@ void TIM2_IRQHandler(void)
 }
 
 /**
-* @brief This function handles TIM4 global interrupt.
+* @brief This function handles TIM3 global interrupt.
 */
-void TIM4_IRQHandler(void)
+void TIM3_IRQHandler(void)
 {
-  /* USER CODE BEGIN TIM4_IRQn 0 */
+  /* USER CODE BEGIN TIM3_IRQn 0 */
 
-	uint32_t status = htim4.Instance->SR;
+	uint32_t status = htim3.Instance->SR;
 
 	if (status & TIM_SR_UIF) {
+
+		if (ledChannelPhase == 0) {
+			GPIOD->BSRR = (1 << (RedLed + 1 * 16));
+		} else {
+			GPIOD->BSRR = (1 << (RedLed + 0 * 16));
+		}
+
 		LedChannel *ledChannel = &ledChannels[ledChannelPhase];
 		ledChannel->gpio->BSRR = (1 << ledChannel->shiftValue); /* turn on phase */
 		uint8_t tempPhase = (ledChannelPhase + nLedChannels - 1) % nLedChannels; /* previous phase */
 		ledChannel = &ledChannels[tempPhase];
 		ledChannel->gpio->BSRR = (1 << (ledChannel->shiftValue + 16)); /* turn off previous phase */
-
 	}
 
 	if (status & TIM_SR_CC1IF) {
 		ledChannelPhase = (ledChannelPhase + 1) % nLedChannels; /* update phase for next interrupt */
 		ledChannelPhase &= LedChannelMask; /* unnecessary (for self-healing) */
 	}
+
+  /* USER CODE END TIM3_IRQn 0 */
+  HAL_TIM_IRQHandler(&htim3);
+  /* USER CODE BEGIN TIM3_IRQn 1 */
+
+  /* USER CODE END TIM3_IRQn 1 */
+}
+
+/**
+* @brief This function handles TIM4 global interrupt.
+*/
+void TIM4_IRQHandler(void)
+{
+  /* USER CODE BEGIN TIM4_IRQn 0 */
 
   /* USER CODE END TIM4_IRQn 0 */
   HAL_TIM_IRQHandler(&htim4);
@@ -240,6 +271,12 @@ void TIM4_IRQHandler(void)
 void TIM5_IRQHandler(void)
 {
   /* USER CODE BEGIN TIM5_IRQn 0 */
+
+	uint32_t status = htim3.Instance->SR;
+
+	if (status & TIM_SR_UIF) {
+		ledChannelPhase = 0;
+	}
 
   /* USER CODE END TIM5_IRQn 0 */
   HAL_TIM_IRQHandler(&htim5);
@@ -301,8 +338,8 @@ void USART6_IRQHandler(void)
 		if (strncmp(gprmcFields[GprmcMessage], "$GPRMC", 6) == 0) { /* 6 = strlen("$GPRMC") */
 			const char *dateString = gprmcFields[GprmcDate];
 			const char *timeString = gprmcFields[GprmcTime];
-			if (utcSeconds == 0) {
-				utcSeconds = UTCTimeFromGPRMCDateTimeStrings(dateString, timeString);
+			if (utcSecondsStaged == 0) {
+				utcSecondsStaged = UTCTimeFromGPRMCDateTimeStrings(dateString, timeString);
 			}
 		}
 		gprmcState = 0;
