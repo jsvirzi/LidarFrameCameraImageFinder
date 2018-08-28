@@ -89,6 +89,30 @@ void MX_USB_HOST_Process(void);
 
 /* USER CODE BEGIN 0 */
 
+/* private variables */
+#define ppsAccumulatorShift 3
+#define ppsAccumulatorSize 8
+#define ppsAccumulatorMask 7
+uint32_t ppsTimeBase = 0;
+uint32_t ppsAccumulator[ppsAccumulatorSize];
+uint32_t ppsAccumulatorSamples = 0;
+
+void averageTimeBase(uint32_t accumulator) {
+	uint32_t head = ppsAccumulatorSamples & ppsAccumulatorMask;
+	ppsAccumulator[head] = accumulator;
+	++ppsAccumulatorSamples;
+	if (ppsAccumulatorSamples >= ppsAccumulatorSize) {
+		accumulator = 0;
+		for (int i = 0; i < ppsAccumulatorSize; ++i) {
+			accumulator += ppsAccumulator[i];
+		}
+		accumulator = (accumulator >> ppsAccumulatorShift);
+	} else {
+		accumulator = 0;
+	}
+	ppsTimeBase = accumulator;
+}
+
 #define GprmcBufferSize 128
 uint8_t gprmcBuff[GprmcBufferSize];
 uint8_t gprmcTemp[GprmcBufferSize];
@@ -134,31 +158,14 @@ uint8_t segLUT[16] = {
 
 uint8_t bitMasks[8] = { 0x80, 0x40, 0x20, 0x10, 0x08, 0x04, 0x02, 0x01 };
 
-#if 0
-  switch (number)
-  {
-    case 1: segments = b | c; break;
-    case 2: segments = a | b | d | e | g; break;
-    case 3: segments = a | b | c | d | g; break;
-    case 4: segments = f | g | b | c; break;
-    case 5: segments = a | f | g | c | d; break;
-    case 6: segments = a | f | g | e | c | d; break;
-    case 7: segments = a | b | c; break;
-    case 8: segments = a | b | c | d | e | f | g; break;
-    case 9: segments = a | b | c | d | f | g; break;
-    case 0: segments = a | b | c | d | e | f; break;
-    case ' ': segments = 0; break;
-    case 'c': segments = g | e | d; break;
-    case '-': segments = g; break;
-  }
-#endif
-
 void displayTime(uint32_t seconds) {
 	uint8_t *p = (uint8_t *) &seconds;
-	p += 4;
+//	p += 4;
 	const uint32_t delay = 100;
 	for (unsigned int i = 0; i < 4; ++i) {
-		uint8_t segments, ch = *--p;
+		uint8_t segments;
+//		uint8_t ch = *--p;
+		uint8_t ch = *p++;
 		segments = segLUT[ch & 0xf];
 		for (unsigned int j = 0; j < 8; ++j) {
 			uint8_t flag = (segments & bitMasks[j]) ? 0 : 1;
@@ -505,12 +512,13 @@ static void MX_TIM5_Init(void)
   TIM_ClockConfigTypeDef sClockSourceConfig;
   TIM_SlaveConfigTypeDef sSlaveConfig;
   TIM_MasterConfigTypeDef sMasterConfig;
+  TIM_OC_InitTypeDef sConfigOC;
   TIM_IC_InitTypeDef sConfigIC;
 
   htim5.Instance = TIM5;
-  htim5.Init.Prescaler = 0;
+  htim5.Init.Prescaler = 83;
   htim5.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim5.Init.Period = 0;
+  htim5.Init.Period = 999999;
   htim5.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   if (HAL_TIM_Base_Init(&htim5) != HAL_OK)
   {
@@ -519,6 +527,11 @@ static void MX_TIM5_Init(void)
 
   sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
   if (HAL_TIM_ConfigClockSource(&htim5, &sClockSourceConfig) != HAL_OK)
+  {
+    _Error_Handler(__FILE__, __LINE__);
+  }
+
+  if (HAL_TIM_PWM_Init(&htim5) != HAL_OK)
   {
     _Error_Handler(__FILE__, __LINE__);
   }
@@ -536,8 +549,17 @@ static void MX_TIM5_Init(void)
   }
 
   sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
-  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_ENABLE;
   if (HAL_TIMEx_MasterConfigSynchronization(&htim5, &sMasterConfig) != HAL_OK)
+  {
+    _Error_Handler(__FILE__, __LINE__);
+  }
+
+  sConfigOC.OCMode = TIM_OCMODE_PWM1;
+  sConfigOC.Pulse = 0;
+  sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
+  sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
+  if (HAL_TIM_PWM_ConfigChannel(&htim5, &sConfigOC, TIM_CHANNEL_1) != HAL_OK)
   {
     _Error_Handler(__FILE__, __LINE__);
   }

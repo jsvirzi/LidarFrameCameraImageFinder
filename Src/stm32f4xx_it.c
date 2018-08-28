@@ -179,12 +179,22 @@ void TIM2_IRQHandler(void)
 {
   /* USER CODE BEGIN TIM2_IRQn 0 */
 
-	static ledPhase = 0;
+	static uint8_t ledPhase = 0;
+	static uint32_t previousCount;
 	uint32_t status = htim2.Instance->SR;
 	if (status & TIM_SR_CC1IF) {
 		ledChannelPhase = 0;
 		ledPhase ^= 1;
 		GPIOD->BSRR = (1 << (15 + ledPhase * 16));
+
+		volatile uint32_t count = htim2.Instance->CCR1;
+		if (previousCount != 0) {
+			uint32_t elapsedTime = count - previousCount;
+			if ((elapsedTime & 0x80000000) == 0) { /* wrap around gives effective negative number */
+				averageTimeBase(elapsedTime);
+			}
+		}
+		previousCount = count;
 	}
 
   /* USER CODE END TIM2_IRQn 0 */
@@ -270,17 +280,10 @@ void USART6_IRQHandler(void)
 		++gprmcFieldIndex;
 	}
 
-//	if (ch != '$') {
-//		ch = 'a';
-//	}
-
 	if (gprmcState == 1) {
 		gprmcBuff[gprmcBuffPos] = ch;
-//		gprmcTemp[gprmcBuffPos] = ch;
 		if (ch == ',') {
-//			gprmcTemp[gprmcBuffPos] = 0;
 			gprmcFields[gprmcFieldIndex] = &gprmcBuff[gprmcBuffPos+1];
-//			gprmcFields[gprmcFieldIndex] = &gprmcTemp[gprmcBuffPos];
 			++gprmcFieldIndex;
 			if (gprmcFieldIndex >= GprmcFields) {
 				badState = 1;
